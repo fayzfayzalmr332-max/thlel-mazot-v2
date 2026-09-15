@@ -96,6 +96,21 @@ def build_pricing_model() -> PricingModel:
 
 # ------------------------------------------------------------------ sidebar
 
+CFG_VERSION = "v2-new-lira-2026-09"
+if st.session_state.get("cfg_version") != CFG_VERSION:
+    # Reset widget state carried over from an older configuration (e.g. the
+    # pre-redenomination 3000/14500 baselines) so the UI always starts from
+    # the current config + live sources after an upgrade.
+    st.session_state["cfg_version"] = CFG_VERSION
+    for _k in ("official_rationed", "official_full",
+               "fx_official_in", "fx_parallel_in", "fx_manual", "news_scan"):
+        st.session_state.pop(_k, None)
+
+# Live FX probe *before* the sidebar so defaults reflect the current market
+# (mem/disk-cached inside FXProvider, so this is cheap on reruns).
+_fx_probe = FXProvider(settings)
+_fx_probe_rates = _fx_probe.get_rates()
+
 with st.sidebar:
     st.markdown("### 🛠️ التحكم والمدخلات")
     tg_status = "مفعّل ✓ (اعتمادات آمنة من secrets/بيئة)" if alert_engine.active else "غير مفعّل — ضع الاعتمادات في .streamlit/secrets.toml"
@@ -119,16 +134,29 @@ with st.sidebar:
     st.markdown("**💱 سعر الصرف (ل.س جديدة/دولار)**")
     st.caption(FX_CFG.get("note_ar", ""))
 
-    st.session_state.setdefault("fx_official_in", DEFAULT_FX_OFFICIAL)
-    st.session_state.setdefault("fx_parallel_in", DEFAULT_FX_PARALLEL)
-    fx_off = st.number_input("السعر الرسمي", min_value=0.0,
-                             value=DEFAULT_FX_OFFICIAL, step=0.5, key="fx_official_in")
-    fx_par = st.number_input("السعر الموازي (السوق)", min_value=0.0,
-                             value=DEFAULT_FX_PARALLEL, step=0.5, key="fx_parallel_in")
-    if st.button("استعادة قيم الصرف الافتراضية"):
-        st.session_state.fx_official_in = DEFAULT_FX_OFFICIAL
-        st.session_state.fx_parallel_in = DEFAULT_FX_PARALLEL
-        st.rerun()
+    # Live waterfall is the default. Manual entry is opt-in ONLY — typed
+    # values must never silently kill the multi-source live feed.
+    fx_manual = st.checkbox("✍️ إدخال يدوي (تجاوز المصادر الحية)", value=False)
+    fx_user_override = None
+    if fx_manual:
+        fx_off = st.number_input("السعر الرسمي", min_value=0.0,
+                                 value=float(_fx_probe_rates["official"]),
+                                 step=0.5, key="fx_official_in")
+        fx_par = st.number_input("السعر الموازي (السوق)", min_value=0.0,
+                                 value=float(_fx_probe_rates["parallel"]),
+                                 step=0.5, key="fx_parallel_in")
+        if st.button("استعادة القيم الحية"):
+            st.session_state.fx_official_in = float(_fx_probe_rates["official"])
+            st.session_state.fx_parallel_in = float(_fx_probe_rates["parallel"])
+            st.rerun()
+        fx_user_override = (float(fx_off), float(fx_par))
+    else:
+        st.caption(
+            f"🔴 حي الآن — رسمي **{fmt_num(_fx_probe_rates['official'], 2)}** · "
+            f"موازٍ **{fmt_num(_fx_probe_rates['parallel'], 2)}** · "
+            f"فرق {fmt_pct(_fx_probe_rates['spread_pct'], signed=True)}"
+        )
+        st.caption("المصادر: " + " ← ".join(_fx_probe_rates.get("sources", ["config"])))
 
     st.markdown("---")
     st.markdown("**📜 التسعيرة الرسمية المرجعية (ل.س جديدة/لتر)**")
@@ -158,11 +186,12 @@ mkt: MarketDataProvider = providers["market"]
 fx_prov: FXProvider = providers["fx"]
 radar: NewsRadar = providers["radar"]
 
-# Apply FX overrides; only tag as "manual" when the user actually changed them.
-if abs(fx_off - DEFAULT_FX_OFFICIAL) < 1e-9 and abs(fx_par - DEFAULT_FX_PARALLEL) < 1e-9:
-    fx_prov.clear_override()
+# Apply FX: live waterfall by default; manual override only when explicitly
+# enabled via the sidebar checkbox (typed values must not kill the feed).
+if fx_user_override is not None:
+    fx_prov.set_override(*fx_user_override)
 else:
-    fx_prov.set_override(fx_off, fx_par)
+    fx_prov.clear_override()
 rates = fx_prov.get_rates()
 
 latest = mkt.get_latest_many(["gasoil", "brent", "shipping", "us_heating"])
