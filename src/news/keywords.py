@@ -84,6 +84,31 @@ MATCH_GROUPS = [
         "boost": ["plunge", "record low", "انهيار", "قفزة"],
     },
     {
+        "group": "CURRENCY_REFORM",
+        "label_ar": "تغيير العملة/الليرة الجديدة",
+        "weight": 0.60,
+        "color": "#38bdf8",
+        "terms": [
+            "redenomination", "currency replacement", "new syrian pound",
+            "currency reform", "new currency", "zero removal",
+            "الليرة الجديدة", "العملة الجديدة", "حذف الأصفار", "إعادة تسمية العملة",
+            "استبدال العملة", "إصلاح نقدي",
+        ],
+        "boost": ["devaluation", "collapse", "انهيار", "خفض قيمة"],
+    },
+    {
+        "group": "UNREST_PROTESTS",
+        "label_ar": "اضطرابات/احتجاجات متعلقة بالأسعار",
+        "weight": 0.80,
+        "color": "#fb7185",
+        "terms": [
+            "protest", "protests", "demonstration", "unrest", "riot",
+            "price hike protest", "fuel protest",
+            "احتجاج", "احتجاجات", "مظاهرة", "مظاهرات", "اعتصام", "غضب", "اضطرابات",
+        ],
+        "boost": ["clashes", "crackdown", "casualties", "مواجهات", "قمع", "إصابات"],
+    },
+    {
         "group": "DEMAND_SEASON",
         "label_ar": "الطلب الموسمي/التدفئة",
         "weight": 0.40,
@@ -100,8 +125,10 @@ MATCH_GROUPS = [
 # Words that escalate the severity of ANY matched article.
 SEVERITY_BOOSTERS = [
     "halted", "shutdown", "explosion", "attacked", "fire", "strike",
-    "blockade", "emergency", "seized", "destroyed", "crash",
-    "توقف", "حريق", "قصف", "هجوم", "تفجير", "إغلاق", "تعطل", "انفجار", "احتجاز", "دُمّر",
+    "blockade", "emergency", "seized", "destroyed", "crash", "protest",
+    "unrest", "riot", "hike", "record", "unprecedented",
+    "توقف", "حريق", "قصف", "هجوم", "تفجير", "إغلاق", "تعطل", "انفجار",
+    "احتجاز", "دُمّر", "احتجاج", "مظاهرة", "قفزة", "رفع غير مسبوق",
 ]
 
 # Stopwords for the emerging-topic engine.

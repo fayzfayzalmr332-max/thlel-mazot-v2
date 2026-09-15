@@ -20,7 +20,7 @@ market:
     intraday_days: 3
   tickers:
     gasoil:
-      candidates: ["GCL=F", "HO=F", "GZ=F"]
+      candidates: ["HO=F", "GCL=F", "GZ=F"]   # GCL=F حُذف من Yahoo — HO=F أولًا
       display: "ICEEUR:ULS1!"
       label: "Gasoil Futures (London Gas Oil)"
       label_ar: "الغازويل الآجل (لندن)"
@@ -31,7 +31,7 @@ market:
         "GZ=F": 1.0
       conversion_notes:
         "HO=F": "مقوّم من زيت التدفئة الأمريكي (NYMEX) دولار/غالون → دولار/طن"
-      synthetic_base: 705.0
+      synthetic_base: 1503.0   # مستوى حي مبني على HO=F≈4.82$/غالون (أيلول 2026)
       synthetic_vol: 0.24
       synthetic_drift: 0.03
     brent:
@@ -41,17 +41,17 @@ market:
       label_ar: "خام برنت"
       unit: "USD/bbl"
       unit_ar: "دولار/برميل"
-      synthetic_base: 82.0
+      synthetic_base: 106.9
       synthetic_vol: 0.21
       synthetic_drift: 0.02
     shipping:
-      candidates: ["^BDI", "BDI", "BDRY", "SEA"]
+      candidates: ["BDRY", "SEA", "^BDI"]     # ^BDI حُذف — بدائل ETF حية
       display: "Baltic Dry Index"
       label: "Baltic Dry Index (freight proxy)"
       label_ar: "مؤشر البلطيق (الشحن)"
       unit: "pts"
       unit_ar: "نقطة"
-      synthetic_base: 1450.0
+      synthetic_base: 16.0     # BDRY ETF ≈ 15-20 دولارًا (وليس آلاف النقاط)
       synthetic_vol: 0.28
       synthetic_drift: 0.00
     us_heating:
@@ -61,33 +61,38 @@ market:
       label_ar: "زيت التدفئة الأمريكي (مرجع)"
       unit: "USD/gal"
       unit_ar: "دولار/غالون"
-      synthetic_base: 2.30
+      synthetic_base: 4.82
       synthetic_vol: 0.22
       synthetic_drift: 0.02
 
 fx:
   candidates: ["SYP=X", "USD=SYP"]
-  official_usd_syp: 13000.0
-  parallel_usd_syp: 15200.0
-  parallel_spread: 0.06
-  note_ar: "قيم البداية تقديرية وقابلة للتعديل يدويًا من الشريط الجانبي عند توفر سعر رسمي/سوق موازٍ"
+  # الليرة السورية الجديدة (بعد حذف صفرين) — القديمة = الجديدة × 100
+  syp_unit: "new"
+  old_factor: 100.0
+  official_usd_syp: 121.66       # ~12,166 قديمة (er-api، رسمي)
+  parallel_usd_syp: 134.0        # ~13,400 قديمة (سوق SP-Today 133.75-134.25)
+  parallel_spread: 0.10
+  note_ar: "الوحدة: ليرة جديدة/دولار (القديمة ×100). مصادر حية: er-api للرسمي + SP-Today للسوق — عدّل يدويًا عند الحاجة"
 
 pricing:
   litres_per_tonne: 1190.0
   gallons_per_tonne: 312.0
   insurance_rate: 0.008          # (% من قيمة الشحنة)
   freight_base_usd_t: 18.0        # شحن أساسي دولار/طن
-  freight_bdi_sensitivity: 0.012  # دولار/طن لكل نقطة انحراف عن 1450
+  freight_bdi_sensitivity: 0.012  # دولار/طن لكل نقطة انحراف عن المرجع
   refining_margin_usd_t: 55.0     # هامش تكرير/قيمة مضافة محلية
-  distribution_margin_syp_l: 950.0
+  distribution_margin_syp_l: 9.5  # ليرة جديدة/لتر (كانت 950 قديمة)
   vat_rate: 0.10
   sanction_premium_usd_t: 120.0   # علاوة عقوبات/التأمين القسري
   official_baseline:
-    decree_date: "2026-09-01"
-    decree_label_ar: "تسعيرة أيلول 2026 — قابلة للتحديث من الشريط الجانبي"
-    rationed_mazot_syp_l: 3000.0     # المازوت المدعوم/الحصة المدبرة
-    full_price_mazot_syp_l: 14500.0  # سعر السوق الحر
-    unit: "ل.س/لتر"
+    decree_date: "2026-09-13"     # الرفع غير المسبوق (Enab Baladi 13 أيلول)
+    decree_label_ar: "تسعيرة أيلول 2026 بعد الرفع غير المسبوق — المازوت 175 ل.س جديدة/لتر (17,500 قديمة)"
+    rationed_mazot_syp_l: 175.0      # السعر الرسمي الجديد (ليرة جديدة/لتر)
+    full_price_mazot_syp_l: 195.0    # تقدير السوق الموازي بعد الرفع — قابل للتعديل
+    gasoline_95_syp_l: 195.0         # بنزين 95: 195 جديدة (19,500 قديمة)
+    gasoline_92_syp_l: 185.0         # بنزين 92: 185 جديدة (18,500 قديمة)
+    unit: "ل.س جديدة/لتر"
 
 momentum:
   short_window: 5
@@ -125,12 +130,16 @@ news:
   google_news_gl: "US"
   google_queries:
     - "Syria fuel OR mazot diesel price decree"
+    - "Syria fuel price hike protest"
+    - "Syria currency redenomination new Syrian pound"
     - "heating oil OR gasoil OR ULSD market rally"
     - "Baniyas refinery operations"
     - "Homs refinery Syria"
     - "Strait of Hormuz shipping tanker disruption"
     - "الكهرباء والمازوت سوريا نقص"
     - "سعر المازوت والغاز سوريا"
+    - "رفع أسعار المحروقات سوريا احتجاجات"
+    - "الليرة السورية الجديدة حذف الأصفار"
     - "مصفاة بانياس سوريا"
     - "مصفاة حمص سوريا"
     - "مضيق هرمز ناقلات النفط"
@@ -138,6 +147,15 @@ news:
   static_feeds:
     - label: "OilPrice Energy"
       url: "https://oilprice.com/rss/main"
+    - label: "Enab Baladi (EN)"
+      url: "https://english.enabbaladi.net/feed/"
+  ar_queries:
+    - "سعر المازوت سوريا"
+    - "مصفاة بانياس"
+    - "مضيق هرمز ناقلات النفط"
+    - "رفع أسعار المحروقات سوريا"
+    - "الليرة السورية الجديدة"
+    - "احتجاجات المحروقات سوريا"
 
 alerting:
   telegram:
@@ -154,10 +172,15 @@ alerting:
     - "مصفاة حمص"
     - "مضيق هرمز"
     - "قرار رفع"
+    - "رفع أسعار المحروقات"
     - "إيقاف"
     - "نقص المازوت"
+    - "احتجاجات المحروقات"
+    - "الليرة الجديدة"
     - "mazot decree"
     - "refinery maintenance"
+    - "fuel price protest"
+    - "redenomination"
   state_cache_key: "alerts_state"
 
 reporting:

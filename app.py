@@ -48,10 +48,10 @@ alert_engine = AlertEngine(settings)
 FX_CFG = settings.get("market", {}).get("fx", {})
 OB_CFG = settings.get("pricing", {}).get("official_baseline", {})
 
-DEFAULT_FX_OFFICIAL = float(FX_CFG.get("official_usd_syp", 13000.0))
-DEFAULT_FX_PARALLEL = float(FX_CFG.get("parallel_usd_syp", 15200.0))
-DEFAULT_RATIONED = float(OB_CFG.get("rationed_mazot_syp_l", 3000.0))
-DEFAULT_FULL = float(OB_CFG.get("full_price_mazot_syp_l", 14500.0))
+DEFAULT_FX_OFFICIAL = float(FX_CFG.get("official_usd_syp", 121.66))
+DEFAULT_FX_PARALLEL = float(FX_CFG.get("parallel_usd_syp", 134.0))
+DEFAULT_RATIONED = float(OB_CFG.get("rationed_mazot_syp_l", 175.0))
+DEFAULT_FULL = float(OB_CFG.get("full_price_mazot_syp_l", 195.0))
 
 
 # ------------------------------------------------------------------ helpers
@@ -98,8 +98,13 @@ def build_pricing_model() -> PricingModel:
 
 with st.sidebar:
     st.markdown("### 🛠️ التحكم والمدخلات")
-    st.caption("🔔 Telegram: " + ("مفعّل ✓ (اعتمادات آمنة من secrets/بيئة)" if alert_engine.active
-                                  else "غير مفعّل — ضع الاعتمادات في .streamlit/secrets.toml"))
+    tg_status = "مفعّل ✓ (اعتمادات آمنة من secrets/بيئة)" if alert_engine.active else "غير مفعّل — ضع الاعتمادات في .streamlit/secrets.toml"
+    if alert_engine.active and getattr(alert_engine, "last_error", None):
+        if "chat not found" in str(alert_engine.last_error):
+            tg_status = "⚠️ افتح t.me/thlel_mazot_radar_bot واضغط Start لتشغيل الإشعارات"
+        else:
+            tg_status = "⚠️ مشكلة إرسال: " + str(alert_engine.last_error)[:60]
+    st.caption("🔔 Telegram: " + tg_status)
     refresh_sec = st.selectbox(
         "إعادة التحديث التلقائية",
         [30, 60, 120, 300, 0],
@@ -111,29 +116,29 @@ with st.sidebar:
         value=st.session_state.get("force_synthetic", False),
     )
     st.markdown("---")
-    st.markdown("**💱 سعر الصرف (ل.س/دولار)**")
+    st.markdown("**💱 سعر الصرف (ل.س جديدة/دولار)**")
     st.caption(FX_CFG.get("note_ar", ""))
 
     st.session_state.setdefault("fx_official_in", DEFAULT_FX_OFFICIAL)
     st.session_state.setdefault("fx_parallel_in", DEFAULT_FX_PARALLEL)
     fx_off = st.number_input("السعر الرسمي", min_value=0.0,
-                             value=DEFAULT_FX_OFFICIAL, step=100.0, key="fx_official_in")
+                             value=DEFAULT_FX_OFFICIAL, step=0.5, key="fx_official_in")
     fx_par = st.number_input("السعر الموازي (السوق)", min_value=0.0,
-                             value=DEFAULT_FX_PARALLEL, step=100.0, key="fx_parallel_in")
+                             value=DEFAULT_FX_PARALLEL, step=0.5, key="fx_parallel_in")
     if st.button("استعادة قيم الصرف الافتراضية"):
         st.session_state.fx_official_in = DEFAULT_FX_OFFICIAL
         st.session_state.fx_parallel_in = DEFAULT_FX_PARALLEL
         st.rerun()
 
     st.markdown("---")
-    st.markdown("**📜 التسعيرة الرسمية المرجعية (ل.س/لتر)**")
+    st.markdown("**📜 التسعيرة الرسمية المرجعية (ل.س جديدة/لتر)**")
     st.caption(OB_CFG.get("decree_label_ar", ""))
     st.session_state.setdefault("official_rationed", DEFAULT_RATIONED)
     st.session_state.setdefault("official_full", DEFAULT_FULL)
-    st.number_input("المازوت المدعوم (حصة)", min_value=0.0,
-                    value=DEFAULT_RATIONED, step=100.0, key="official_rationed")
-    st.number_input("سوق حر رسمي", min_value=0.0,
-                    value=DEFAULT_FULL, step=500.0, key="official_full")
+    st.number_input("المازوت الرسمي (بعد الرفع)", min_value=0.0,
+                    value=DEFAULT_RATIONED, step=1.0, key="official_rationed")
+    st.number_input("السوق الموازي التقديري", min_value=0.0,
+                    value=DEFAULT_FULL, step=1.0, key="official_full")
 
     scan_now = st.button("⟳ تشغيل مسح أخبار فوري")
     if st.button("🗑 إعادة تعيين التخزين المؤقت"):
@@ -276,7 +281,7 @@ cols[1].markdown(
                   latest["brent"].get("symbol", "")),
     unsafe_allow_html=True,
 )
-syp_note = f"الرسمي {fmt_num(rates['official'],0)} ل.س · فرق {fmt_pct(rates['spread_pct'], signed=True)}"
+syp_note = f"الرسمي {fmt_num(rates['official'],0)} ل.س جديدة · فرق {fmt_pct(rates['spread_pct'], signed=True)}"
 trend_txt = f'{arrow(rates.get("trend_pct",0) or 0)} {fmt_pct(rates.get("trend_pct"), signed=True)} على 10 أيام' if rates.get("trend_pct") else "مأخوذ من التكوين/إدخال يدوي"
 cols[2].markdown(
     P.metric_card("syp", "سعر الصرف الموازي (ل.س/دولار)", fmt_num(rates["parallel"], 0),
@@ -349,7 +354,8 @@ with tabs[1]:
     with st.expander("افتراضات النموذج (شرائح مباشرة تقوّي الشفافية)", expanded=True):
         c1, c2, c3 = st.columns(3)
         refine_m = c1.slider("هامش التكرير (USD/طن)", 0, 200, int(model.refining_margin_usd_t), 5)
-        dist_m = c2.slider("هامش التوزيع (ل.س/لتر)", 0, 4000, int(model.distribution_margin_syp_l), 50)
+        dist_m = c2.slider("هامش التوزيع (ل.س جديدة/لتر)", 0.0, 60.0,
+                           float(model.distribution_margin_syp_l), 0.5)
         vat_r = c3.slider("الضريبة (VAT)", 0.0, 0.30, float(model.vat_rate), 0.01)
         c4, c5 = st.columns(2)
         san_p = c4.slider("علاوة العقوبات/التأمين القسري (USD/طن)", 0, 500,

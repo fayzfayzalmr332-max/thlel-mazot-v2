@@ -214,6 +214,7 @@ class AlertEngine:
         # Active ONLY when both a real config toggle AND real credentials exist;
         # (placeholders are cleaned to "" -> cannot activate the bot).
         self.enabled = bool(tg.get("enabled", False)) and bool(self.bot_token) and bool(self.chat_id)
+        self.last_error: Optional[str] = None
 
         self.parse_mode = str(tg.get("parse_mode", "HTML"))
         self.api_base = str(tg.get(
@@ -350,18 +351,38 @@ class AlertEngine:
             return False
 
     def _telegram_send(self, text: str) -> bool:
-        """Real Telegram Bot API call — the ONLY network touch point."""
+        """Real Telegram Bot API call — the ONLY network touch point.
+
+        Never raises: delivery problems are logged with the API's own
+        description (e.g. 'chat not found' -> the user must press Start on
+        the bot once) and reported back as False.
+        """
         if not self.enabled or not self.bot_token or not self.chat_id:
             return False
         url = self.api_base.format(token=self.bot_token)
-        resp = requests.post(url, data={
-            "chat_id": self.chat_id,
-            "text": text,
-            "parse_mode": self.parse_mode,
-            "disable_web_page_preview": "true",
-        }, timeout=10)
-        resp.raise_for_status()
-        return bool(resp.json().get("ok", False))
+        try:
+            resp = requests.post(url, data={
+                "chat_id": self.chat_id,
+                "text": text,
+                "parse_mode": self.parse_mode,
+                "disable_web_page_preview": "true",
+            }, timeout=10)
+            if not resp.ok:
+                desc = ""
+                try:
+                    desc = resp.json().get("description", "")
+                except ValueError:
+                    desc = resp.text[:120]
+                logger.warning("Telegram delivery failed (%s): %s",
+                               resp.status_code, desc)
+                self.last_error = f"{resp.status_code}: {desc}"
+                return False
+            self.last_error = None
+            return bool(resp.json().get("ok", False))
+        except requests.RequestException as exc:
+            logger.warning("Telegram delivery error: %s", exc)
+            self.last_error = str(exc)
+            return False
 
     @property
     def configured(self) -> bool:

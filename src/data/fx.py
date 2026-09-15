@@ -1,17 +1,26 @@
 """USD/SYP exchange-rate provider — official vs parallel (market) rate.
 
-Because live USD/SYP feeds are unreliable, resolution is:
-  manual override (sidebar) -> yfinance SYP candidate -> config baseline.
-The parallel rate defaults to ``official * (1 + spread)`` but can be given
-explicitly. The returned dict is immutable for consumers.
+Live-source waterfall (first success wins, never raises):
+  1. manual override (sidebar / caller)
+  2. SP Today (sp-today.com)        -> market/parallel quote (buy/sell mid)
+  3. exchangerate-api (open.er-api) -> official/central-bank style quote
+  4. yfinance SYP candidates
+  5. config baselines
+
+REDENOMINATION AWARENESS: Syria replaced its currency (2 zeros removed — the
+"new Syrian pound"). All live sources are normalised to *new* SYP and both
+new/old values are returned so the UI can display either unit.
 """
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+import requests
 
 from ..utils.disk_cache import DiskCache
 
@@ -25,14 +34,59 @@ except Exception:  # pylint: disable=broad-except
 
 logger = logging.getLogger(__name__)
 
+_HTTP_TIMEOUT = 10.0
+_ERAPI_URL = "https://open.er-api.com/v6/latest/USD"
+_SPTODAY_URL = "https://sp-today.com/en"
+
+_SP_TODAY_RE = re.compile(
+    r"US Dollar[\s\S]{0,400}?Buy[\s\S]{0,200}?>([\d.,]+)<[\s\S]{0,300}?Sell[\s\S]{0,200}?>([\d.,]+)<",
+    re.I,
+)
+
+
+def _num(text: str) -> Optional[float]:
+    """Parse '13,375' / '133.75' -> float (None on failure)."""
+    try:
+        v = float(str(text).replace(",", "").strip())
+        return v if v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def extract_closes(df: Any) -> Optional[Any]:
+    """Robustly pull a flat 1-D Close series out of a yfinance frame.
+
+    Newer yfinance versions return MultiIndex columns even for a single
+    ticker; ``df["Close"]`` then yields a *DataFrame*, not a Series, which
+    broke the previous live path with ``float(Series)`` TypeErrors.
+    """
+    if df is None:
+        return None
+    try:
+        import pandas as pd  # local import keeps module import-light
+
+        close = df["Close"] if "Close" in df.columns else None
+        if close is None:
+            return None
+        if isinstance(close, pd.DataFrame):  # MultiIndex case
+            close = close.iloc[:, 0]
+        close = pd.to_numeric(close, errors="coerce").dropna()
+        return close if len(close) else None
+    except Exception:  # pylint: disable=broad-except
+        return None
+
 
 class FXProvider:
     def __init__(self, settings: Dict[str, Any], cache_dir: str | None = None):
         fx_cfg = settings.get("market", {}).get("fx", {})
-        self.candidates = list(fx_cfg.get("candidates") or ["SYP=X"])
-        self.official_default = float(fx_cfg.get("official_usd_syp", 13_000.0))
-        self.parallel_default = float(fx_cfg.get("parallel_usd_syp", 15_200.0))
-        self.spread = float(fx_cfg.get("parallel_spread", 0.06))
+        self.candidates: List[str] = list(fx_cfg.get("candidates") or ["SYP=X"])
+        self.official_default = float(fx_cfg.get("official_usd_syp", 121.0))
+        self.parallel_default = float(fx_cfg.get("parallel_usd_syp", 134.0))
+        self.spread = float(fx_cfg.get("parallel_spread", 0.10))
+        # Redenomination: display/input unit of the config file ("new"/"old")
+        # and the multiplier new -> old (new SYP x 100 = old SYP).
+        self.unit = str(fx_cfg.get("syp_unit", "new")).lower()
+        self.old_factor = float(fx_cfg.get("old_factor", 100.0))
 
         app_cfg = settings.get("app", {})
         self.disk = DiskCache(cache_dir or app_cfg.get("cache_dir", ".cache"))
@@ -43,13 +97,15 @@ class FXProvider:
 
     # ------------------------------------------------------------------ API
 
-    def set_override(self, official: Optional[float] = None, parallel: Optional[float] = None) -> None:
+    def set_override(self, official: Optional[float] = None,
+                     parallel: Optional[float] = None) -> None:
+        """Set manual rates *in the configured display unit*."""
         with self._lock:
             self._override = {}
             if official is not None and official > 0:
-                self._override["official"] = float(official)
+                self._override["official"] = self._to_new(float(official))
             if parallel is not None and parallel > 0:
-                self._override["parallel"] = float(parallel)
+                self._override["parallel"] = self._to_new(float(parallel))
             self._mem = None
             self._mem_ts = 0.0
 
@@ -70,58 +126,126 @@ class FXProvider:
             self._mem_ts = time.time()
         return dict(result)
 
-    # --------------------------------------------------------------- internals
+    # --------------------------------------------------------------- helpers
 
-    def _live_syp(self) -> Optional[tuple]:
-        """Return (last_close, prev_close) if a live SYP rate is reachable."""
+    def _to_new(self, value: float) -> float:
+        """Config-unit -> new-SYP normalisation."""
+        return value / self.old_factor if self.unit == "old" else float(value)
+
+    def _to_display(self, value_new: float) -> float:
+        """New-SYP -> configured display unit."""
+        return value_new * self.old_factor if self.unit == "old" else float(value_new)
+
+    # ------------------------------------------------------------ live pulls
+
+    def _live_yf(self) -> Optional[Tuple[float, float]]:
+        """(last, prev) market-style SYP quote via yfinance."""
         if not YF_AVAILABLE:
             return None
         for symbol in self.candidates:
             try:
                 df = yf.download(symbol, period="10d", interval="1d",
                                  progress=False, auto_adjust=True, threads=False)
-                if df is not None and len(df) and "Close" in df.columns:
-                    closes = df["Close"].dropna()
-                    if len(closes) >= 2:
-                        return float(closes.iloc[-1]), float(closes.iloc[-2])
+                closes = extract_closes(df)
+                if closes is not None and len(closes) >= 2:
+                    return float(closes.iloc[-1]), float(closes.iloc[-2])
             except Exception as exc:  # pylint: disable=broad-except
                 logger.debug("FX live fetch failed for %s: %s", symbol, exc)
         return None
 
+    def _live_erapi(self) -> Optional[float]:
+        """Official-style USD/SYP from exchangerate-api (free, key-less)."""
+        try:
+            data = requests.get(_ERAPI_URL, timeout=_HTTP_TIMEOUT).json()
+            return _num(str(data.get("rates", {}).get("SYP", "")))
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.debug("ER-API fetch failed: %s", exc)
+            return None
+
+    def _live_sptoday(self) -> Optional[Tuple[float, float]]:
+        """Market (parallel) USD/SYP buy/sell from SP Today -> (buy, sell)."""
+        try:
+            r = requests.get(_SPTODAY_URL, timeout=_HTTP_TIMEOUT,
+                             headers={"User-Agent": "Mozilla/5.0"})
+            m = _SP_TODAY_RE.search(r.text or "")
+            if not m:
+                return None
+            buy, sell = _num(m.group(1)), _num(m.group(2))
+            return (buy, sell) if (buy and sell) else None
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.debug("SP-Today fetch failed: %s", exc)
+            return None
+
+    # -------------------------------------------------------------- pipeline
+
     def _compute(self) -> Dict[str, Any]:
-        live = self._live_syp()
-        source = "config"
-
-        live_official = (live[0] if live else None)
-        prev_official = (live[1] if live else None)
-
-        official = float(self._override.get("official", live_official if live_official else self.official_default))
-        source = "live" if live_official else source
-
-        explicit_parallel = self._override.get("parallel")
-        if explicit_parallel:
-            parallel = float(explicit_parallel)
-            source = "manual"
-        else:
-            parallel_official = live_official if live_official else official
-            parallel = float(self._override.get("official", parallel_official * (1.0 + self.spread)))
-
+        """Resolve official + parallel rates with full source provenance."""
+        sources: List[str] = []
+        official = parallel = None
         trend_pct = None
-        if prev_official and live_official:
-            trend_pct = ((live_official - prev_official) / prev_official) * 100.0
 
-        # A tiny deterministic "market jitter" keeps the parallel quote living
-        # when it is derived from config, without inventing false precision.
-        if source not in ("live", "manual"):
-            seed = int((datetime.utcnow().strftime("%H%M"))[-2:])
-            jitter = 1.0 + (seed % 40 - 20) / 10_000.0
-            parallel = parallel * jitter
+        # 1) manual override wins outright
+        if self._override.get("official") or self._override.get("parallel"):
+            official = self._override.get("official")
+            parallel = self._override.get("parallel")
+            sources.append("manual")
+
+        # 2) SP Today market quote -> parallel
+        if parallel is None:
+            sp = self._live_sptoday()
+            if sp:
+                parallel = (sp[0] + sp[1]) / 2.0
+                sources.append("sp-today")
+
+        # 3) exchangerate-api -> official
+        if official is None:
+            er = self._live_erapi()
+            if er:
+                official = er
+                sources.append("er-api")
+
+        # 4) yfinance market quote fills whatever is still missing
+        if official is None or parallel is None:
+            yf_q = self._live_yf()
+            if yf_q:
+                last, prev = yf_q
+                if official is None:
+                    official = last
+                    sources.append("yf")
+                if parallel is None:
+                    parallel = last * (1.0 + self.spread)
+                    sources.append("yf")
+                if prev:
+                    trend_pct = (last - prev) / prev * 100.0
+
+        # 5) config fallback
+        if official is None:
+            official = self.official_default
+            sources.append("config")
+        if parallel is None:
+            parallel = official * (1.0 + self.spread)
+            sources.append("config-derived")
+
+        official, parallel = float(official), float(parallel)
+
+        # Tiny deterministic jitter keeps a config-derived quote "living"
+        # without inventing false precision from live sources.
+        if not any(s in ("sp-today", "yf", "manual") for s in sources):
+            seed = int(datetime.utcnow().strftime("%H%M")[-2:])
+            parallel *= 1.0 + (seed % 40 - 20) / 10_000.0
+
+        parallel = max(parallel, official)
+        spread_pct = (parallel / official - 1.0) * 100.0
 
         return {
             "official": round(official, 2),
-            "parallel": round(max(parallel, official), 2),
-            "spread_pct": round((max(parallel, official) / official - 1.0) * 100.0, 2),
-            "source": source,
+            "parallel": round(parallel, 2),
+            "spread_pct": round(spread_pct, 2),
+            "unit": "new",                      # normalised storage unit
+            "official_old": round(official * self.old_factor),
+            "parallel_old": round(parallel * self.old_factor),
+            "sources": sources,
+            "source": sources[-1] if sources else "config",
             "trend_pct": round(trend_pct, 3) if trend_pct is not None else None,
             "ts": datetime.utcnow().isoformat() + "Z",
         }

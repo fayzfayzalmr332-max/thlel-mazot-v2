@@ -32,12 +32,15 @@ def build_feed_registry(settings: Dict[str, Any]) -> List[Dict[str, str]]:
                 "kind": "google",
             }
         )
-    # Arabic-language mirrors of the same themes (kept lean).
-    ar_queries = [
-        "سعر المازوت سوريا",
-        "مصفاة بانياس",
-        "مضيق هرمز ناقلات النفط",
-    ]
+    # Arabic-language mirrors of the same themes (config-driven, lean fallback).
+    ar_queries = news_cfg.get(
+        "ar_queries",
+        [
+            "سعر المازوت سوريا",
+            "مصفاة بانياس",
+            "مضيق هرمز ناقلات النفط",
+        ],
+    )
     for query in ar_queries:
         feeds.append(
             {

@@ -33,14 +33,14 @@ class PricingModel:
         self.freight_base = float(p.get("freight_base_usd_t", 18.0))
         self.freight_bdi_sens = float(p.get("freight_bdi_sensitivity", 0.012))
         self.refining_margin_usd_t = float(p.get("refining_margin_usd_t", 55.0))
-        self.distribution_margin_syp_l = float(p.get("distribution_margin_syp_l", 950.0))
+        self.distribution_margin_syp_l = float(p.get("distribution_margin_syp_l", 9.5))
         self.vat_rate = float(p.get("vat_rate", 0.10))
         self.sanction_premium_usd_t = float(p.get("sanction_premium_usd_t", 120.0))
 
         ob = p.get("official_baseline", {})
-        self.official_rationed = float(ob.get("rationed_mazot_syp_l", 3000.0))
-        self.official_full = float(ob.get("full_price_mazot_syp_l", 14500.0))
-        self.decree_date = str(ob.get("decree_date", "2026-09-01"))
+        self.official_rationed = float(ob.get("rationed_mazot_syp_l", 175.0))
+        self.official_full = float(ob.get("full_price_mazot_syp_l", 195.0))
+        self.decree_date = str(ob.get("decree_date", "2026-09-13"))
 
     # ------------------------------------------------------------------ rates
 
