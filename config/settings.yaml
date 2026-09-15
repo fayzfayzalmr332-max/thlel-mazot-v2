@@ -1,0 +1,168 @@
+# =============================================================
+# THLEL MAZOT — إعدادات اللوحة التحليلية لأسواق الطاقة وتأثيرها على سوريا
+# كل القيم قابلة للتعديل؛ تُقرأ عند كل تشغيل.
+# =============================================================
+
+app:
+  title: "ثُلَّ المازوت — لوحة أسواق الطاقة وتأثيراتها المحلية على سوريا"
+  subtitle: "متابعة أسواق الغازويل/المازوت الآجلة وعملية التسعير المحلية والإطار الجيوسياسي"
+  refresh_seconds: 60
+  cache_dir: ".cache"
+  mem_cache_seconds: 300
+  timezone: "Asia/Damascus"
+
+market:
+  history:
+    period: "1y"
+    interval: "1d"
+    days: 252
+    intraday_interval: "5m"
+    intraday_days: 3
+  tickers:
+    gasoil:
+      candidates: ["GCL=F", "HO=F", "GZ=F"]
+      display: "ICEEUR:ULS1!"
+      label: "Gasoil Futures (London Gas Oil)"
+      label_ar: "الغازويل الآجل (لندن)"
+      unit: "USD/t"
+      unit_ar: "دولار/طن"
+      unit_factors:
+        "HO=F": 312.0          # تحويل من دولار/غالون إلى دولار/طن
+        "GZ=F": 1.0
+      conversion_notes:
+        "HO=F": "مقوّم من زيت التدفئة الأمريكي (NYMEX) دولار/غالون → دولار/طن"
+      synthetic_base: 705.0
+      synthetic_vol: 0.24
+      synthetic_drift: 0.03
+    brent:
+      candidates: ["BZ=F", "CL=F"]
+      display: "ICEEUR:BC1!"
+      label: "Brent Crude (ICE)"
+      label_ar: "خام برنت"
+      unit: "USD/bbl"
+      unit_ar: "دولار/برميل"
+      synthetic_base: 82.0
+      synthetic_vol: 0.21
+      synthetic_drift: 0.02
+    shipping:
+      candidates: ["^BDI", "BDI", "BDRY", "SEA"]
+      display: "Baltic Dry Index"
+      label: "Baltic Dry Index (freight proxy)"
+      label_ar: "مؤشر البلطيق (الشحن)"
+      unit: "pts"
+      unit_ar: "نقطة"
+      synthetic_base: 1450.0
+      synthetic_vol: 0.28
+      synthetic_drift: 0.00
+    us_heating:
+      candidates: ["HO=F"]
+      display: "NYMEX:HO!"
+      label: "NY Harbor ULSD (proxy)"
+      label_ar: "زيت التدفئة الأمريكي (مرجع)"
+      unit: "USD/gal"
+      unit_ar: "دولار/غالون"
+      synthetic_base: 2.30
+      synthetic_vol: 0.22
+      synthetic_drift: 0.02
+
+fx:
+  candidates: ["SYP=X", "USD=SYP"]
+  official_usd_syp: 13000.0
+  parallel_usd_syp: 15200.0
+  parallel_spread: 0.06
+  note_ar: "قيم البداية تقديرية وقابلة للتعديل يدويًا من الشريط الجانبي عند توفر سعر رسمي/سوق موازٍ"
+
+pricing:
+  litres_per_tonne: 1190.0
+  gallons_per_tonne: 312.0
+  insurance_rate: 0.008          # (% من قيمة الشحنة)
+  freight_base_usd_t: 18.0        # شحن أساسي دولار/طن
+  freight_bdi_sensitivity: 0.012  # دولار/طن لكل نقطة انحراف عن 1450
+  refining_margin_usd_t: 55.0     # هامش تكرير/قيمة مضافة محلية
+  distribution_margin_syp_l: 950.0
+  vat_rate: 0.10
+  sanction_premium_usd_t: 120.0   # علاوة عقوبات/التأمين القسري
+  official_baseline:
+    decree_date: "2026-09-01"
+    decree_label_ar: "تسعيرة أيلول 2026 — قابلة للتحديث من الشريط الجانبي"
+    rationed_mazot_syp_l: 3000.0     # المازوت المدعوم/الحصة المدبرة
+    full_price_mazot_syp_l: 14500.0  # سعر السوق الحر
+    unit: "ل.س/لتر"
+
+momentum:
+  short_window: 5
+  long_window: 30
+  spike_5d_pct: 6.0        # ارتفاع 5 أيام تراكمي يُعد "صاروخًا"
+  purging_5d_pct: -6.0
+  drift_long_pct: 4.0      # انخفاض تراكمي 30 يومًا
+  feather_min_down_days: 12
+  feather_max_daily_decline: 0.35  # % يوميًا — انحدار بطيء
+  asymmetry_threshold: 1.8
+
+sentiment:
+  weights:
+    geopolitical: 0.35
+    momentum: 0.30
+    parity_gap: 0.20
+    shipping: 0.15
+  grade_bands:
+    - max_score: 35
+      grade: "GREEN"
+      label_ar: "ارتياح / تبريد دولي"
+    - max_score: 65
+      grade: "YELLOW"
+      label_ar: "متابعة حذرة"
+    - max_score: 100
+      grade: "RED"
+      label_ar: "استمرار أزمة الإمداد / ضغط مضاعف"
+
+news:
+  max_items_per_feed: 6
+  request_timeout: 12
+  half_life_hours: 36
+  seen_cache_max_hours: 48
+  google_news_hl: "en-US"
+  google_news_gl: "US"
+  google_queries:
+    - "Syria fuel OR mazot diesel price decree"
+    - "heating oil OR gasoil OR ULSD market rally"
+    - "Baniyas refinery operations"
+    - "Homs refinery Syria"
+    - "Strait of Hormuz shipping tanker disruption"
+    - "الكهرباء والمازوت سوريا نقص"
+    - "سعر المازوت والغاز سوريا"
+    - "مصفاة بانياس سوريا"
+    - "مصفاة حمص سوريا"
+    - "مضيق هرمز ناقلات النفط"
+    - "عقوبات الطاقة على سوريا"
+  static_feeds:
+    - label: "OilPrice Energy"
+      url: "https://oilprice.com/rss/main"
+
+alerting:
+  telegram:
+    enabled: false            # ====== فعّل فقط بعد إدخال بيانات البوت (انظر الأسفل) ======
+    bot_token: "PLACEHOLDER_BOT_TOKEN"      # من @BotFather — مثال: 1234567890:AAH...xyz
+    chat_id: "PLACEHOLDER_CHAT_ID"          # معرّف المستخدم/القناة — مثال: 987654321 أو @MyChannel
+    parse_mode: "HTML"
+    send_api_base: "https://api.telegram.org/bot{token}/sendMessage"
+  price_move_threshold_usd_t: 30.0          # عتبة حركة الغازويل (دولار/طن) لإرسال تنبيه
+  min_news_severity: 0.65                   # لا تُنبّه لأخبار دون هذه الشدة (0-1)
+  critical_keywords:
+    - "بانياس"
+    - "مصفاة بانياس"
+    - "مصفاة حمص"
+    - "مضيق هرمز"
+    - "قرار رفع"
+    - "إيقاف"
+    - "نقص المازوت"
+    - "mazot decree"
+    - "refinery maintenance"
+  state_cache_key: "alerts_state"
+
+reporting:
+  pdf:
+    author: "THLEL MAZOT"
+    page_size: "A4"
+    include_geo_triggers: true
+    lang: "ar"
