@@ -98,7 +98,8 @@ def build_pricing_model() -> PricingModel:
 
 with st.sidebar:
     st.markdown("### 🛠️ التحكم والمدخلات")
-    st.caption("🔔 Telegram: " + ("مفعّل ✓" if alert_engine.active else "غير مفعّل (placeholder في الإعدادات)"))
+    st.caption("🔔 Telegram: " + ("مفعّل ✓ (اعتمادات آمنة من secrets/بيئة)" if alert_engine.active
+                                  else "غير مفعّل — ضع الاعتمادات في .streamlit/secrets.toml"))
     refresh_sec = st.selectbox(
         "إعادة التحديث التلقائية",
         [30, 60, 120, 300, 0],
@@ -525,7 +526,7 @@ with tabs[4]:
         else:
             st.caption("لا أحداث جديدة منذ آخر تقييم (حركة سعر ≥ عتبة، تغيّر إشارة، أو كلمة حرجة).")
         st.caption("🔔 حالة البوت: " + ("مفعّل — سيبلغ فورًا" if alert_engine.active
-                                        else "غير مفعّل — أدخل بيانات البوت في settings.yaml وارفَع enabled=true"))
+                                        else "غير مفعّل — ضع الاعتماديات في .streamlit/secrets.toml أو متغيرات البيئة (لا تُكتب في settings.yaml)"))
     s1, s2 = st.columns([1.3, 1])
     with s1:
         show_chart(C.sub_scores_bars(sentiment["sub_scores"], sentiment["color"]))

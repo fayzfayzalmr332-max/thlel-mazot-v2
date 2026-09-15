@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import html as _html
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -38,6 +39,48 @@ SEVERITY_WARNING = "WARNING"
 SEVERITY_CRITICAL = "CRITICAL"
 
 GRADE_LEVEL = {"GREEN": 1, "YELLOW": 2, "RED": 3}
+
+
+def _read_secret(secret_key: str) -> str:
+    """Resolve a secret: env var -> Streamlit secrets -> local secrets.toml.
+
+    Never raises: returns "" when unavailable (tests / offline stay safe).
+    ``tomllib`` reads ``.streamlit/secrets.toml`` as a final fallback for CLI
+    tools that run outside the Streamlit runtime.
+    """
+    val = os.environ.get(secret_key)
+    if val:
+        return str(val).strip()
+    try:  # Streamlit secrets are only present under the Streamlit runtime.
+        import streamlit as st  # pylint: disable=import-outside-toplevel
+
+        st_val = st.secrets.get(secret_key)
+        if st_val:
+            return str(st_val).strip()
+    except Exception:  # pylint: disable=broad-except
+        pass
+    try:  # CLI fallback: parse the (gitignored) secrets.toml directly.
+        import tomllib  # Python >= 3.11
+        from pathlib import Path
+
+        secrets_path = Path(__file__).resolve().parents[2] / ".streamlit" / "secrets.toml"
+        if secrets_path.exists():
+            with open(secrets_path, "rb") as fh:
+                data = tomllib.load(fh)
+            v = data.get(secret_key)
+            if v:
+                return str(v).strip()
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return ""
+
+
+def _clean(cfg_value: Any) -> str:
+    """Empty-out placeholder values so they are never treated as real config."""
+    v = str(cfg_value or "").strip()
+    if v.upper().startswith("PLACEHOLDER"):
+        return ""
+    return v
 
 
 @dataclass(frozen=True)
@@ -159,9 +202,19 @@ class AlertEngine:
                  sender: Optional[Callable[[str], bool]] = None):
         self.cfg = settings.get("alerting", {}) or {}
         tg = self.cfg.get("telegram", {}) or {}
-        self.enabled = bool(tg.get("enabled", False))
-        self.bot_token = str(tg.get("bot_token", "") or "")
-        self.chat_id = str(tg.get("chat_id", "") or "")
+
+        # Priority: env vars > .streamlit/secrets.toml > settings.yaml.
+        # Placeholders ("PLACEHOLDER_*") are treated as empty so the bot is
+        # never used with dummy credentials.
+        cfg_token = _clean(tg.get("bot_token", ""))
+        cfg_chat = _clean(tg.get("chat_id", ""))
+        self.bot_token = _read_secret("TM_TELEGRAM_BOT_TOKEN") or cfg_token
+        self.chat_id = _read_secret("TM_TELEGRAM_CHAT_ID") or cfg_chat
+
+        # Active ONLY when both a real config toggle AND real credentials exist;
+        # (placeholders are cleaned to "" -> cannot activate the bot).
+        self.enabled = bool(tg.get("enabled", False)) and bool(self.bot_token) and bool(self.chat_id)
+
         self.parse_mode = str(tg.get("parse_mode", "HTML"))
         self.api_base = str(tg.get(
             "send_api_base", "https://api.telegram.org/bot{token}/sendMessage"))
@@ -286,6 +339,15 @@ class AlertEngine:
         return events
 
     # ------------------------------------------------------------- delivery
+
+    def send_message(self, text: str) -> bool:
+        """Send one free-text message through the active sender (no parsing).
+        Returns False (never raises) when delivery fails."""
+        try:
+            return bool(self._sender(str(text)))
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Telegram send_message failed: %s", exc)
+            return False
 
     def _telegram_send(self, text: str) -> bool:
         """Real Telegram Bot API call — the ONLY network touch point."""

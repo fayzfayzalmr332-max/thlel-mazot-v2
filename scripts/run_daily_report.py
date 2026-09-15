@@ -43,9 +43,15 @@ def _fmt(value, digits: int = 2, suffix: str = "") -> str:
         return "—"
 
 
+def sent_emoji(grade: str) -> str:
+    return {"GREEN": "🟢", "YELLOW": "🟡", "RED": "🔴"}.get(str(grade).upper(), "⚪")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--notify-webhook", default="", help="POST JSON snapshot to this URL")
+    parser.add_argument("--notify-telegram", action="store_true",
+                        help="send the daily brief to Telegram via AlertEngine")
     parser.add_argument("--out-dir", default=str(ROOT / "data" / "reports"))
     parser.add_argument("--skip-news-scan", action="store_true")
     args = parser.parse_args()
@@ -139,6 +145,27 @@ def main() -> int:
 
     print(f"[daily] grade={sentiment['grade']} score={sentiment['score']:.0f} "
           f"theoretical={_fmt(bd['theoretical_syp_l'], 0)} SYP/L -> {md_path}")
+
+    # ---------- optional telegram brief ----------
+    if args.notify_telegram:
+        from src.analysis.alerts import AlertEngine
+        engine = AlertEngine(settings)
+        if not engine.configured:
+            print("[daily] telegram skipped: لا اعتماديات (ضع token/chat_id في .streamlit/secrets.toml أو المتغيرات)")
+        else:
+            brief_text = "\n".join([
+                f"📋 ملخص الوضع اليومي — ثُلَّ المازوت — {now_str}",
+                f"الإشارة: {sent_emoji(sentiment['grade'])} {sentiment['label_ar']} "
+                f"({sentiment['grade']} — {sentiment['score']:.0f}/100)",
+                f"الغازويل: {_fmt(latest['gasoil']['value'], 1)} USD/طن",
+                f"برنت: {_fmt(latest['brent']['value'], 1)} USD/برميل",
+                f"سعر الصرف الموازي: {_fmt(rates['parallel'], 0)} ل.س/دولار",
+                f"السعر النظري: {_fmt(bd['theoretical_syp_l'], 0)} ل.س/لتر "
+                f"(فجوة السوق الحر {_fmt(gap_full, 1)}%)",
+                f"الضغط الجيوسياسي: {news['stress_index']:.0f}/100",
+            ])
+            ok = engine.send_message(brief_text)
+            print("[daily] telegram:", "OK" if ok else "FAILED — تأكد من تفعيل البوت وبدء المحادثة (/start)")
 
     # ---------- optional webhook ----------
     if args.notify_webhook:

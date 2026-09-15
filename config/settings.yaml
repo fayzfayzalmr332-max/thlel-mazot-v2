@@ -141,9 +141,9 @@ news:
 
 alerting:
   telegram:
-    enabled: false            # ====== فعّل فقط بعد إدخال بيانات البوت (انظر الأسفل) ======
-    bot_token: "PLACEHOLDER_BOT_TOKEN"      # من @BotFather — مثال: 1234567890:AAH...xyz
-    chat_id: "PLACEHOLDER_CHAT_ID"          # معرّف المستخدم/القناة — مثال: 987654321 أو @MyChannel
+    enabled: true             # يَفعَل فقط عند وجود اعتماديات حقيقية (secrets.toml / بيئة)
+    bot_token: "PLACEHOLDER_BOT_TOKEN"      # من @BotFather — لا يوضع هنا، بل في .streamlit/secrets.toml
+    chat_id: "PLACEHOLDER_CHAT_ID"          # لا يوضع هنا، بل في .streamlit/secrets.toml
     parse_mode: "HTML"
     send_api_base: "https://api.telegram.org/bot{token}/sendMessage"
   price_move_threshold_usd_t: 30.0          # عتبة حركة الغازويل (دولار/طن) لإرسال تنبيه
