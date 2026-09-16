@@ -18,6 +18,7 @@ English/Latin layout so the report always builds.
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -132,10 +133,17 @@ class PdfReport:
 
     # ------------------------------------------------------------------ text
 
+    # Characters the embedded Tahoma subset cannot render (CJK/kana and
+    # pictographs slip in via news headlines); drop them before shaping.
+    _UNSUPPORTED_RE = re.compile(r"[\u0400-\u04FF\u2E80-\u9FFF\uA000-\uA4CF"
+                                 r"\uAC00-\uD7FF\uF900-\uFAFF\uFE30-\uFE4F"
+                                 r"\U0001F000-\U0001FAFF\u2600-\u27BF]")
+
     def display(self, text: str) -> str:
         """Shaped + bidi-reordered text (visual LTR for fpdf2, RTL visually)."""
         if not text:
             return ""
+        text = self._UNSUPPORTED_RE.sub("", str(text))
         if self._arabic_ok and self._reshape and self._bidi:
             return str(self._bidi(self._reshape(text)))
         return text
